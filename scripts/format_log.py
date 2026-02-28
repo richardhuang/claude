@@ -173,66 +173,25 @@ def find_latest_file(directory_path=None):
 
 
 def find_claude_project_dir():
-    """Find the Claude project directory automatically."""
+    """Find the Claude project directory automatically.
+
+    Returns the projects directory itself so that all subdirectories
+    can be monitored for the latest .jsonl files.
+    """
     home = Path.home()
     projects_dir = home / ".claude" / "projects"
 
     if not projects_dir.is_dir():
         return None
 
-    # Find subdirectories that contain .jsonl files
-    subdirs = [d for d in projects_dir.iterdir() if d.is_dir()]
-    subdirs_with_jsonl = []
-
-    for d in subdirs:
-        # Check direct children for .jsonl files
-        direct_jsonl = list(d.glob("*.jsonl"))
-        if direct_jsonl:
-            subdirs_with_jsonl.append(d)
-            continue
-        # Check 'chats' subdirectory within this dir
-        chats_subdir = d / "chats"
-        if chats_subdir.is_dir():
-            jsonl_files = list(chats_subdir.glob("*.jsonl"))
-            if jsonl_files:
-                subdirs_with_jsonl.append(chats_subdir)
-
-    if not subdirs_with_jsonl:
+    # Check if there are any .jsonl files in projects_dir or subdirectories
+    jsonl_files = list(projects_dir.rglob("*.jsonl"))
+    if not jsonl_files:
         return None
 
-    # Also check if projects_dir itself has .jsonl files
-    direct_jsonl_files = list(projects_dir.glob("*.jsonl"))
-    if direct_jsonl_files:
-        # Check if any file in projects_dir is newer than the best subdir
-        newest_direct_mtime = max(f.stat().st_mtime for f in direct_jsonl_files)
-        # Compare with the newest file in best_dir
-        best_dir = None
-        best_time = 0
-        for subdir in subdirs_with_jsonl:
-            jsonl_files = list(subdir.rglob("*.jsonl"))
-            if jsonl_files:
-                newest_mtime = max(f.stat().st_mtime for f in jsonl_files)
-                if newest_mtime > best_time:
-                    best_time = newest_mtime
-                    best_dir = subdir
-
-        # If projects_dir has newer files, return it
-        if newest_direct_mtime > best_time:
-            return projects_dir
-
-    # Prioritize workspace-related directories with newer data
-    # Return the one with the most recent .jsonl file
-    latest_file_time = 0
-    best_dir = None
-    for subdir in subdirs_with_jsonl:
-        jsonl_files = list(subdir.rglob("*.jsonl"))
-        if jsonl_files:
-            newest_mtime = max(f.stat().st_mtime for f in jsonl_files)
-            if newest_mtime > latest_file_time:
-                latest_file_time = newest_mtime
-                best_dir = subdir
-
-    return best_dir
+    # Return the projects directory itself, not a specific subdirectory
+    # This allows tail_follow to monitor all .jsonl files in all subdirectories
+    return projects_dir
 
 def find_next_timestamp_index(lines, start_index):
     """Find the next line that contains a log entry with a timestamp"""
