@@ -200,6 +200,26 @@ def find_claude_project_dir():
     if not subdirs_with_jsonl:
         return None
 
+    # Also check if projects_dir itself has .jsonl files
+    direct_jsonl_files = list(projects_dir.glob("*.jsonl"))
+    if direct_jsonl_files:
+        # Check if any file in projects_dir is newer than the best subdir
+        newest_direct_mtime = max(f.stat().st_mtime for f in direct_jsonl_files)
+        # Compare with the newest file in best_dir
+        best_dir = None
+        best_time = 0
+        for subdir in subdirs_with_jsonl:
+            jsonl_files = list(subdir.rglob("*.jsonl"))
+            if jsonl_files:
+                newest_mtime = max(f.stat().st_mtime for f in jsonl_files)
+                if newest_mtime > best_time:
+                    best_time = newest_mtime
+                    best_dir = subdir
+
+        # If projects_dir has newer files, return it
+        if newest_direct_mtime > best_time:
+            return projects_dir
+
     # Prioritize workspace-related directories with newer data
     # Return the one with the most recent .jsonl file
     latest_file_time = 0
@@ -458,8 +478,33 @@ def tail_follow(file_path=None, directory_path=None):
                     # If it's not JSON, print as raw line
                     print(f"📄 Raw Line: {line.strip()}")
             else:
-                # No new line, check if file was rotated/renamed
+                # No new line from current file, check for new files
                 time.sleep(0.1)
+
+                # Periodically check for newer files (every 10 cycles, ~1 second)
+                check_counter = getattr(tail_follow, 'check_counter', 0)
+                tail_follow.check_counter = check_counter + 1
+
+                if tail_follow.check_counter >= 10:
+                    tail_follow.check_counter = 0
+                    try:
+                        current_path = Path(file_path)
+                        current_mtime = current_path.stat().st_mtime
+                        # Find the latest .jsonl file in the directory
+                        latest_file_path, _ = get_currently_tracking_file(directory_path)
+                        if latest_file_path and latest_file_path != file_path:
+                            # Check if the latest file is newer than current file
+                            latest_mtime = Path(latest_file_path).stat().st_mtime
+                            if latest_mtime > current_mtime:
+                                print(f"\nDetected newer log file, switching to: {latest_file_path}")
+                                f.close()
+                                file_path = latest_file_path
+                                f = open(file_path, 'r')
+                                f.seek(0, os.SEEK_END)
+                                current_inode = Path(file_path).stat().st_ino
+                    except Exception:
+                        # Ignore errors during file check
+                        pass
 
                 # Try to get current file info
                 try:
@@ -488,7 +533,7 @@ def tail_follow(file_path=None, directory_path=None):
                         current_inode = new_inode
                     elif new_file_path:
                         # Same file, just wait
-                        time.sleep(0.1)
+                        pass  # Already waited above
                     else:
                         # No log file found, wait and retry
                         time.sleep(1)
